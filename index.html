@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lean 證明機</title>
+<meta name="description" content="把白話邏輯題交給 AI 翻成 Lean 4，貼回來，機器逐一檢查每一種可能：邏輯嚴密就亮綠燈，有漏洞就直接給你反例。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@700;900&display=swap">
+<style>
+/* 版面：上方兩個步驟（寫題目、貼回 Lean），下方左右兩個視窗（Lean 證明 / 判決） */
+:root {
+  color-scheme: dark;
+  --bg: #0c111d;
+  --bg-2: #111829;
+  --panel: #151d31;
+  --panel-2: #1b2540;
+  --line: #2a3554;
+  --fg: #ece8dc;
+  --muted: #8d97b4;
+  --gold: #f2c14e;
+  --green: #3ddc97;
+  --red: #ff5d73;
+  --amber: #ffb454;
+  --blue: #7cc0ff;
+  --violet: #c4a7ff;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-display: "Noto Serif TC", "Songti TC", serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Noto Sans TC", monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--bg); }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.7;
+  background-image:
+    radial-gradient(1100px 500px at 85% -10%, rgba(242,193,78,.10), transparent 60%),
+    radial-gradient(900px 500px at -10% 10%, rgba(124,192,255,.08), transparent 60%);
+  background-repeat: no-repeat;
+}
+.wrap { max-width: 1280px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 28px; }
+button, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* 頁首 */
+header.top { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 28px; }
+.brand { display: flex; align-items: baseline; gap: 14px; }
+.brand .turn { font-family: var(--font-mono); font-weight: 700; font-size: 44px; color: var(--gold); line-height: 1; }
+h1 { font-family: var(--font-display); font-weight: 900; font-size: clamp(34px, 5vw, 52px); line-height: 1.1; margin: 0; letter-spacing: .02em; }
+.tagline { flex: 1 1 320px; color: var(--muted); margin: 0; max-width: 46em; }
+.tagline b { color: var(--fg); font-weight: 500; }
+
+/* 步驟 */
+.steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.step { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.step h2 { margin: 0; font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+.step h2 .n { font-family: var(--font-mono); font-size: 13px; color: var(--bg); background: var(--gold); border-radius: 6px; padding: 1px 8px; font-weight: 700; }
+.step p { margin: 0; color: var(--muted); font-size: 14px; }
+textarea { width: 100%; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; resize: vertical; line-height: 1.6; }
+textarea::placeholder { color: #5d6785; }
+#puzzle { min-height: 120px; }
+#lean { min-height: 120px; font-family: var(--font-mono); font-size: 13px; white-space: pre; overflow: auto; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row .lbl { font-size: 13px; color: var(--muted); }
+.chip { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; font-size: 13px; cursor: pointer; color: var(--fg); transition: border-color .15s, background .15s; }
+.chip:hover { border-color: var(--gold); background: rgba(242,193,78,.08); }
+.btn { border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; padding: 9px 16px; cursor: pointer; font-weight: 500; transition: transform .1s, border-color .15s, background .15s; text-decoration: none; color: var(--fg); display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
+.btn:hover { border-color: var(--gold); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--gold); border-color: var(--gold); color: #1a1405; font-weight: 700; }
+.btn.primary:hover { background: #ffd56e; }
+.btn.small { padding: 5px 12px; font-size: 13px; }
+details.prompt { border-top: 1px dashed var(--line); padding-top: 10px; }
+details.prompt summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+details.prompt pre { margin: 10px 0 0; max-height: 320px; overflow: auto; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.toast { font-size: 13px; color: var(--green); min-height: 1.2em; }
+
+/* 舞台 */
+.stage { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.win { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; min-width: 0; display: flex; flex-direction: column; }
+.win-bar { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); }
+.win-bar .dots { display: flex; gap: 6px; }
+.win-bar .dots i { width: 10px; height: 10px; border-radius: 50%; background: #3a4666; display: block; }
+.win-bar .name { color: var(--fg); }
+.win-bar .sp { flex: 1; }
+.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.65; padding: 12px 0; overflow: auto; max-height: 460px; background: var(--bg-2); }
+.code .ln { display: flex; min-width: max-content; padding-right: 16px; }
+.code .ln.err { background: rgba(255,93,115,.14); box-shadow: inset 3px 0 0 var(--red); }
+.code .no { flex: 0 0 44px; text-align: right; padding-right: 14px; color: #4d5878; user-select: none; }
+.code .tx { white-space: pre; }
+.caret { display: inline-block; width: 8px; height: 1.1em; background: var(--gold); vertical-align: text-bottom; animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.c-com { color: #66728f; font-style: italic; }
+.c-kw { color: var(--violet); font-weight: 500; }
+.c-tac { color: var(--gold); }
+.c-ty { color: var(--blue); }
+.c-ctor { color: #8fe3c8; }
+.c-op { color: #ff9eb0; }
+.c-num { color: var(--amber); }
+.sub-bar { padding: 7px 14px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel-2); font-family: var(--font-mono); font-size: 12px; color: var(--muted); display: flex; gap: 10px; align-items: center; }
+.log { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; padding: 12px 14px; max-height: 300px; min-height: 120px; overflow: auto; }
+.log div { white-space: pre-wrap; word-break: break-word; }
+.log .h { color: var(--fg); font-weight: 700; }
+.log .dim { color: var(--muted); }
+.log .ok { color: var(--green); }
+.log .bad { color: var(--red); }
+.log .warn { color: var(--amber); }
+.log .kill { color: #7f89a6; }
+.log .kill b { color: #c0c7dc; font-weight: 500; }
+
+/* 判決 */
+.verdict { padding: 22px 20px 18px; display: flex; flex-direction: column; gap: 16px; position: relative; }
+.verdict::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .5s; }
+.win[data-v="proved"] .verdict::before { opacity: 1; background: radial-gradient(520px 200px at 20% 0%, rgba(61,220,151,.20), transparent 70%); }
+.win[data-v="refuted"] .verdict::before, .win[data-v="error"] .verdict::before { opacity: 1; background: radial-gradient(520px 200px at 20% 0%, rgba(255,93,115,.20), transparent 70%); }
+.win[data-v="vacuous"] .verdict::before { opacity: 1; background: radial-gradient(520px 200px at 20% 0%, rgba(255,180,84,.18), transparent 70%); }
+.win[data-v="cannot"] .verdict::before { opacity: 1; background: radial-gradient(520px 200px at 20% 0%, rgba(124,192,255,.16), transparent 70%); }
+.win[data-v="proved"] { border-color: rgba(61,220,151,.55); box-shadow: 0 0 0 1px rgba(61,220,151,.15), 0 18px 60px -20px rgba(61,220,151,.35); }
+.win[data-v="refuted"], .win[data-v="error"] { border-color: rgba(255,93,115,.6); box-shadow: 0 0 0 1px rgba(255,93,115,.15), 0 18px 60px -20px rgba(255,93,115,.35); }
+.win[data-v="vacuous"] { border-color: rgba(255,180,84,.55); }
+.win[data-v="cannot"] { border-color: rgba(124,192,255,.5); }
+.win.shake { animation: shake .5s; }
+@keyframes shake { 15% { transform: translateX(-7px); } 30% { transform: translateX(6px); } 45% { transform: translateX(-4px); } 60% { transform: translateX(3px); } 75% { transform: translateX(-1px); } }
+.head { display: flex; gap: 16px; align-items: center; position: relative; }
+.lamp { flex: 0 0 58px; height: 58px; border-radius: 50%; background: #2b3552; border: 2px solid #3b4768; display: grid; place-items: center; font-size: 28px; font-weight: 900; color: #0c111d; transition: background .3s, box-shadow .3s, border-color .3s; }
+.win[data-v="proved"] .lamp { background: var(--green); border-color: #a4f5d2; box-shadow: 0 0 34px rgba(61,220,151,.7); }
+.win[data-v="refuted"] .lamp, .win[data-v="error"] .lamp { background: var(--red); border-color: #ffb3bf; box-shadow: 0 0 34px rgba(255,93,115,.7); }
+.win[data-v="vacuous"] .lamp { background: var(--amber); border-color: #ffe0b0; box-shadow: 0 0 30px rgba(255,180,84,.6); }
+.win[data-v="cannot"] .lamp { background: var(--blue); border-color: #cfe6ff; }
+.win[data-v="busy"] .lamp { animation: pulse 1s infinite; }
+@keyframes pulse { 50% { background: #46547c; } }
+.head h3 { margin: 0; font-family: var(--font-display); font-weight: 900; font-size: clamp(22px, 2.6vw, 30px); line-height: 1.25; text-wrap: balance; }
+.head .sub { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+.answer { position: relative; background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.answer .k { font-size: 12px; letter-spacing: .12em; color: var(--muted); margin-bottom: 4px; }
+.answer .t { font-size: 18px; font-weight: 500; line-height: 1.6; white-space: pre-wrap; }
+.answer.struck .t { text-decoration: line-through; text-decoration-color: var(--red); color: var(--muted); font-size: 16px; }
+.block { position: relative; display: flex; flex-direction: column; gap: 8px; }
+.block > .k { font-size: 12px; letter-spacing: .12em; color: var(--muted); }
+.block p { margin: 0; font-size: 14.5px; }
+.block p.note { color: var(--muted); font-size: 13.5px; }
+table.model { border-collapse: collapse; width: 100%; font-size: 14px; }
+table.model td { padding: 5px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.model td:first-child { font-family: var(--font-mono); color: var(--blue); white-space: nowrap; }
+table.model td:nth-child(2) { font-family: var(--font-mono); font-weight: 700; white-space: nowrap; }
+table.model td:nth-child(3) { color: var(--muted); font-size: 13px; }
+.v-true { color: var(--green); } .v-false { color: var(--red); } .v-other { color: var(--gold); }
+.scroll-x { overflow-x: auto; }
+.hole { border: 1px solid rgba(255,93,115,.5); background: rgba(255,93,115,.08); border-radius: 12px; padding: 12px 14px; }
+.hole code, .block code { font-family: var(--font-mono); font-size: 13px; background: rgba(255,255,255,.06); padding: 1px 6px; border-radius: 5px; word-break: break-word; }
+.worlds { display: grid; grid-template-columns: repeat(auto-fill, minmax(9px, 1fr)); gap: 3px; }
+.worlds i { aspect-ratio: 1; border-radius: 2px; background: #5b6a94; transition: background .35s, opacity .35s, transform .35s, box-shadow .35s; display: block; }
+.worlds i.dead { background: #232c46; }
+.worlds i.live { background: var(--green); box-shadow: 0 0 8px rgba(61,220,151,.8); transform: scale(1.25); }
+.worlds i.cex { background: var(--red); box-shadow: 0 0 8px rgba(255,93,115,.9); transform: scale(1.25); }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.stats b { color: var(--fg); font-family: var(--font-mono); font-size: 16px; }
+.hyps { display: flex; flex-direction: column; gap: 6px; }
+.hyp { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 7px 10px; border-radius: 8px; border: 1px solid transparent; transition: border-color .2s, background .2s; }
+.hyp.on { border-color: var(--gold); background: rgba(242,193,78,.08); }
+.hyp .c { font-size: 14px; }
+.hyp .f { font-family: var(--font-mono); font-size: 12px; color: var(--muted); grid-column: 1; word-break: break-word; }
+.hyp .kills { grid-row: 1 / span 2; grid-column: 2; align-self: center; font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.others { display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
+.badge { font-family: var(--font-mono); font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); margin-right: 6px; }
+.badge.proved { color: var(--green); border-color: rgba(61,220,151,.5); } .badge.refuted, .badge.error { color: var(--red); border-color: rgba(255,93,115,.5); } .badge.vacuous { color: var(--amber); border-color: rgba(255,180,84,.5); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; position: relative; }
+.errbox { font-family: var(--font-mono); font-size: 13px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; }
+
+/* 頁尾 */
+footer { color: var(--muted); font-size: 13.5px; border-top: 1px solid var(--line); padding-top: 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 32px; }
+footer h4 { margin: 0 0 4px; color: var(--fg); font-size: 14px; }
+footer p { margin: 0; }
+footer a { color: var(--gold); }
+
+@media (max-width: 900px) {
+  .steps, .stage { grid-template-columns: minmax(0, 1fr); }
+  .code { max-height: 340px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="brand"><span class="turn" aria-hidden="true">⊢</span><h1>Lean 證明機</h1></div>
+  <p class="tagline">用白話寫一道邏輯題，請 AI 翻成 <b>Lean 4 證明</b>，貼回來。機器會把<b>每一種可能的情況</b>全部檢查一遍：邏輯嚴密就亮綠燈，有漏洞就直接丟一個反例給你看。</p>
+</header>
+
+<section class="steps" aria-label="操作步驟">
+  <div class="step">
+    <h2><span class="n">1</span>寫下你的邏輯題，複製給 AI</h2>
+    <p>把題目打在這裡，按「複製提示詞＋題目」，整段貼到 ChatGPT、Claude、Gemini 都可以。AI 會照固定格式回你一段 Lean 4；轉不出來它也會直接說原因。</p>
+    <textarea id="puzzle" placeholder="例如：A 說 B 在說謊，B 說 C 在說謊，C 說 A、B 都在說謊。請問到底誰在說謊？" aria-label="你的白話邏輯題"></textarea>
+    <div class="row"><span class="lbl">沒靈感？</span><span id="puzzle-chips" class="row"></span></div>
+    <div class="row">
+      <button class="btn primary" id="copy-prompt" type="button">複製提示詞＋題目</button>
+      <span class="toast" id="toast-prompt" role="status"></span>
+    </div>
+    <details class="prompt">
+      <summary>看完整提示詞</summary>
+      <pre id="prompt-view"></pre>
+    </details>
+  </div>
+
+  <div class="step">
+    <h2><span class="n">2</span>把 AI 的回答貼回來</h2>
+    <p>整段貼上就好（包含 ```lean 的外框也沒關係）。</p>
+    <textarea id="lean" spellcheck="false" placeholder="把 AI 回你的 Lean 4 貼在這裡" aria-label="AI 產生的 Lean 4"></textarea>
+    <div class="row">
+      <button class="btn primary" id="run" type="button">⊢ 開始驗證</button>
+      <button class="btn small" id="skip" type="button" hidden>跳過動畫</button>
+    </div>
+  </div>
+</section>
+
+<section class="stage" aria-label="驗證結果">
+  <div class="win" id="win-left">
+    <div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="name">Puzzle.lean</span><span class="sp"></span><span>Lean 4</span></div>
+    <div class="code" id="code" aria-label="Lean 4 程式"></div>
+    <div class="sub-bar"><span>▸ 證明步驟</span><span class="sp"></span><span id="log-count"></span></div>
+    <div class="log" id="log" aria-live="polite"></div>
+  </div>
+
+  <div class="win" id="win-right" data-v="idle">
+    <div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="name">判決</span><span class="sp"></span><span id="thm-name"></span></div>
+    <div class="verdict" id="verdict"></div>
+  </div>
+</section>
+
+<footer>
+  <div><h4>它怎麼檢查的？</h4><p>網頁會讀懂你貼的 Lean 4（有限型別上的邏輯），把變數的每一種取值組合當成一個「可能世界」，一個一個代進去：先用題目條件淘汰，剩下的世界再看結論成不成立。這跟 Lean 的 <code>decide</code> 策略做的事一樣，只是直接在你的瀏覽器裡跑。</p></div>
+  <div><h4>哪些題目做不到？</h4><p>範圍無限（任意整數、實數）、牽涉機率、需要常識判斷語意的題目沒辦法逐一檢查。把範圍限制成有限個選項（幾個人、幾個位置、是或否）通常就能轉。</p></div>
+</footer>
+
+</div>
+
+<script type="text/plain" id="prompt-tpl">你是「Lean 證明機」的題目轉換器。請把最下面的【白話邏輯題】轉成指定格式的 Lean 4。
+我會把你的輸出原封不動貼到一個網頁，網頁會把所有可能情況逐一代入，檢查你的結論是否 100% 成立；只要有一種情況不成立，就會顯示反例。
+
+# 你要做的事
+1. 先自己把題目解出來（題目要的是策略，就先設計出策略）。
+2. 把「題目給的條件」寫成前提，把「你的答案」寫成結論，寫成一個 Lean 4 的 theorem。
+3. 只輸出一個 ```lean 程式區塊，區塊以外不要寫任何字。
+
+# 輸出格式（照這個骨架）
+```lean
+/-
+【題目】用一兩句話重述題目
+【結論】用白話寫出答案，給一般人看（不要出現變數名稱）
+-/
+
+theorem who_is_lying
+    (a b c : Bool)              -- a / b / c 為 true 代表 A / B / C 說的是真話
+    (hA : a = !b)               -- A 說：B 在說謊
+    (hB : b = !c)               -- B 說：C 在說謊
+    (hC : c = (!a && !b))       -- C 說：A、B 都在說謊
+    : a = false ∧ b = true ∧ c = false := by decide
+```
+規則：
+- 變數寫成 (名稱 : 型別)，前提寫成 (h名稱 : 條件)，一個條件一行，行尾用 `--` 註解說明它對應題目的哪一句。變數那一行也要註解它代表什麼。
+- 結論放在最後的冒號後面，多個結論用 ∧ 連接。證明一律寫 `:= by decide`（網頁會自動補上完整證明）。
+- 條件只放題目明講的事，不可以把答案偷寫進前提。
+- 可以有多個 theorem（例如題目有好幾小題）。
+- 另一種可用寫法：`theorem t : ∀ (a b : Bool), 條件 → 條件 → 結論 := by decide`；問「有沒有可能」時用 `theorem t : ∃ (a : Bool) (k : Kid), 條件 ∧ 條件 := by decide`。
+
+# 只能使用這些語法（其他一律不要用）
+型別（變數只能是這三種）：
+- `Bool`
+- `Fin n`：0 到 n-1 的整數，例如 `Fin 5`。比較可以直接寫 `x < y`、`x = 2`；加減乘除一定要寫 `.val`，例如 `x.val + 1 = y.val`。
+- 列舉型別：`inductive Kid | ming | hua | mei` 下一行寫 `  deriving DecidableEq`。選項不能帶參數。取值寫 `.ming` 或 `Kid.ming`。
+運算：
+- 邏輯：`∧ ∨ ¬ → ↔`，Bool 也可以用 `&& || ! ^^`（`^^` 是互斥或）。
+- 比較：`= ≠ == != < > ≤ ≥`。數字：自然數常數與 `+ - * / %`（減法不會小於 0）。
+- `if 條件 then 甲 else 乙`、`match x with | .a => … | .b => … | _ => …`、`let 名稱 := 值`（換行後接後續）。
+- 量詞：`∀ x : 型別, …`、`∃ x : 型別, …`、`∃! x : 型別, …`（型別同樣只能是上面三種）。
+- `b.toNat`：把 Bool 變成 1 或 0，用來數「有幾個」。
+輔助定義（非必要不用）：
+- `def 名稱 (參數 : 型別) … : 回傳型別 := 運算式`。不可以遞迴，不可以用 by。
+禁止：structure、class、List、Nat/Int/Real 型別的變數、函式型別的變數、(a, b) 成對的值、⟨ ⟩、import、tactic 證明、sorry、axiom。
+
+# 重要的寫法細節
+- Bool 等式右邊只要有運算就加括號：寫 `a = (!b && c)`，不要寫 `a = !b && c`。
+- `!` 和 `¬` 後面接複合式時加括號：`!(x == y)`、`¬ (p ∧ q)`。
+- 列舉值互相比較，在 Bool 運算裡用 `==`、`!=`（例如 `s = (thief != .ming)`），當作條件時用 `=`、`≠`。
+- 變數越少越好。所有變數取值組合的總數請控制在大約一百萬以內；「各不相同」這類能大量排除情況的條件請寫在最前面。
+
+# 建模技巧
+- 說真話／說謊（騎士與無賴）：每個人一個 Bool，true 代表他說真話。「X 說 P」寫成 `x = (P)`：說真話的人講的是真的，說謊的人講的是假的。有時說真有時說假的人，就不對他的話加條件。
+- 「恰好 k 個」：`a.toNat + b.toNat + c.toNat = k`。「至少／至多」用 `≥`、`≤`。
+- 身分、職業、顏色等配對：用 inductive 列舉，每個人一個變數；「各不相同」用 `≠` 兩兩寫出。
+- 排名、座位、樓層、日期：用 `Fin n`。相鄰寫 `x.val + 1 = y.val ∨ y.val + 1 = x.val`。
+- 題目裡「你不知道的事」（暗號的意思、擲銅板的結果、誰是誰）就是多一個變數；定理必須對它的所有取值都成立。
+- 策略題（問幾個問題找出真相、過河、秤重）：用 def 把「照這個策略會得到的回答／結果」寫成函式，結論寫「照策略推出來的答案等於真相」。【結論】要用白話把策略講清楚。
+- 題目本身無解或有多組解：照樣把條件寫成前提。多組解時，結論只寫「所有解都共同成立的事」，並在【結論】說明答案不唯一。
+
+# 轉不出來的時候
+如果題目無法用上面的語法表達（範圍無限、牽涉機率、要靠常識解讀語意、需要數學歸納法、情況數量太大），不要硬轉，改成只輸出下面兩行（不要程式區塊）：
+【無法轉換】一句話說明原因
+【建議改法】具體說明題目怎麼改就能轉（例如把人數、範圍限制成多少）
+
+# 白話邏輯題
+</script>
+
+<script src="engine.js"></script>
+<script src="examples.js"></script>
+<script>
+(function () {
+'use strict';
+const $ = id => document.getElementById(id);
+const EX = window.LEAN_EXAMPLES;
+const PROMPT = $('prompt-tpl').textContent.replace(/^\n+/, '');
+const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let runId = 0, instant = false;
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const num = n => (n >= 1e15 ? n.toExponential(2) : Math.round(n).toLocaleString('zh-TW'));
+const sleep = ms => (instant ? Promise.resolve() : new Promise(r => setTimeout(r, ms)));
+
+/* ── 複製 ── */
+async function copyText(text, toastEl, msg) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+    ta.remove();
+  }
+  if (toastEl) { toastEl.textContent = ok ? msg : '瀏覽器不讓我複製，請展開下方提示詞手動全選複製'; setTimeout(() => { toastEl.textContent = ''; }, 4000); }
+  return ok;
+}
+
+/* ── 語法上色 ── */
+const HL = /(\/-[\s\S]*?(?:-\/|$))|(--[^\n]*)|\b(theorem|lemma|example|def|abbrev|inductive|deriving|instance|namespace|end|open|match|with|if|then|else|let|fun|by|where|set_option|in)\b|\b(decide|revert|intro|cases|exact|rfl|simp|sorry)\b|\b(Bool|Prop|Fin|Nat|Type|true|false|True|False|DecidableEq|Decidable|DecidablePred)\b|(\.[A-Za-z_][\w']*)|([∀∃∧∨¬→↔≠≤≥⊢×⟨⟩]|:=|=>|&&|\|\||!=|==|\^\^|!)|\b(\d+)\b/g;
+const CLS = [null, 'c-com', 'c-com', 'c-kw', 'c-tac', 'c-ty', 'c-ctor', 'c-op', 'c-num'];
+function hlLines(src) {
+  const lines = [[]];
+  const put = (cls, text) => {
+    const parts = text.split('\n');
+    parts.forEach((p, i) => { if (i) lines.push([]); if (p) lines[lines.length - 1].push(cls ? `<span class="${cls}">${esc(p)}</span>` : esc(p)); });
+  };
+  let last = 0, m; HL.lastIndex = 0;
+  while ((m = HL.exec(src))) {
+    if (m[0] === '') { HL.lastIndex++; continue; }
+    if (m.index > last) put(null, src.slice(last, m.index));
+    let g = 1; while (g < 9 && m[g] === undefined) g++;
+    put(CLS[g], m[0]); last = m.index + m[0].length;
+  }
+  if (last < src.length) put(null, src.slice(last));
+  return lines.map(l => l.join(''));
+}
+function renderCode(src, opts) {
+  opts = opts || {};
+  const lines = hlLines(src);
+  if (lines.length > 1 && lines[lines.length - 1] === '' && !opts.caret) lines.pop();
+  $('code').innerHTML = lines.map((l, i) =>
+    `<div class="ln${opts.errLine === i + 1 ? ' err' : ''}"><span class="no">${i + 1}</span><span class="tx">${l}${opts.caret && i === lines.length - 1 ? '<span class="caret"></span>' : ''}</span></div>`).join('');
+}
+async function typeCode(src, id) {
+  const total = src.length, frames = Math.min(150, Math.max(30, Math.round(total / 6)));
+  const step = Math.ceil(total / frames);
+  const box = $('code');
+  for (let n = step; n < total && !instant; n += step) {
+    if (id !== runId) return;
+    renderCode(src.slice(0, n), { caret: true });
+    box.scrollTop = box.scrollHeight;
+    await new Promise(r => requestAnimationFrame(r));
+  }
+}
+
+/* ── 證明步驟 ── */
+function buildLog(t) {
+  const L = [];
+  const add = (cls, html) => L.push({ cls, html });
+  add('h', `theorem ${esc(t.name)}`);
+  if (t.verdict === 'error') { add('bad', `✗ ${esc(t.error.msg)}`); return L; }
+  const st = t.stats, names = t.vars.map(v => v.name);
+  if (names.length) add('dim', `  ${t.mode === 'exists' ? '尋找' : 'revert'} ${esc(names.join(' '))}    -- ${names.length} 個未知數，共 ${num(st.total)} 種可能世界`);
+  add('dim', `  decide                -- 逐一檢查`);
+  const kills = t.trace.filter(e => e.hyp >= 0), mods = t.trace.filter(e => e.hyp < 0);
+  const showK = new Set(kills.slice(0, 14)), showM = new Set(mods.slice(0, 16));
+  let skipped = 0;
+  const flush = () => { if (skipped) { add('kill', `  ⋮ 另外 ${num(skipped)} 筆同樣被前提排除`); skipped = 0; } };
+  for (const e of t.trace) {
+    const asg = e.vals.map((v, i) => `${names[i]}=${v}`).join(', ') || '（不需代入）';
+    if (e.hyp >= 0) {
+      if (!showK.has(e)) { skipped++; continue; }
+      const h = t.hyps[e.hyp];
+      add('kill', `  case ${esc(asg)}  <b>✗ ${esc(h.label)}</b> 不成立：${esc(e.piece)}${e.worlds > 1 ? `  （一次排除 ${num(e.worlds)} 種）` : ''}`);
+    } else {
+      if (!showM.has(e)) continue;
+      flush();
+      if (t.mode === 'exists') add('ok', `  case ${esc(asg)}  ✓ 所有條件同時成立`);
+      else if (e.ok) add('ok', `  case ${esc(asg)}  ✓ 前提全部成立 ⊢ 結論成立`);
+      else add('bad', `  case ${esc(asg)}  ✗ 前提全部成立，但結論不成立：${esc(t.goals[e.failed].text)}`);
+    }
+  }
+  flush();
+  if (st.models > mods.length || mods.length > showM.size) add('dim', `  ⋮ 共 ${num(st.models)} 個世界通過所有前提`);
+  const killed = st.total - st.models;
+  if (t.verdict === 'proved') add('ok', t.mode === 'exists'
+    ? `∎ 找到 ${num(st.models)} 組解，命題成立`
+    : `∎ ${num(st.total)} 種世界檢查完畢：${num(killed)} 種被前提排除，${num(st.models)} 種存活且結論全部成立`);
+  else if (t.verdict === 'vacuous') add('warn', `⚠ ${num(st.total)} 種世界全部被前提排除：題目條件互相矛盾`);
+  else add('bad', t.mode === 'exists'
+    ? `✗ ${num(st.total)} 種世界沒有一個同時滿足所有條件`
+    : `✗ decide 失敗：${num(st.models)} 種存活的世界裡，有 ${num(st.bad)} 種結論不成立`);
+  return L;
+}
+async function playLog(lines, id) {
+  const box = $('log');
+  const delay = Math.max(18, Math.min(90, 2600 / Math.max(1, lines.length)));
+  for (const l of lines) {
+    if (id !== runId) return;
+    const d = document.createElement('div');
+    d.className = l.cls; d.innerHTML = l.html; box.appendChild(d);
+    box.scrollTop = box.scrollHeight;
+    await sleep(delay);
+  }
+}
+
+/* ── 判決面板 ── */
+function valCell(v) { return `<span class="${v === 'true' ? 'v-true' : v === 'false' ? 'v-false' : 'v-other'}">${esc(v)}</span>`; }
+function modelTable(t, m) {
+  const cm = {};
+  for (const g of t.groups) for (const nm of g.names) cm[nm] = g.comment;
+  return `<div class="scroll-x"><table class="model"><tbody>${t.vars.map((v, i) =>
+    `<tr><td>${esc(v.name)}</td><td>${valCell(m.vals[i])}</td><td>${esc(cm[v.name] || v.type)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function modelsCompact(t, list, max) {
+  const rows = list.slice(0, max).map(m => `<tr>${m.vals.map(v => `<td style="font-family:var(--font-mono)">${valCell(v)}</td>`).join('')}</tr>`).join('');
+  return `<div class="scroll-x"><table class="model"><thead><tr>${t.vars.map(v => `<td>${esc(v.name)}</td>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>` +
+    (list.length > max ? `<p class="note">只列出前 ${max} 組。</p>` : '');
+}
+function worldCells(t) {
+  if (!t.segs || !t.stats.total) return null;
+  const total = t.stats.total, C = Math.min(total, 640);
+  const cells = new Array(C).fill(null).map(() => ({ kill: -1, model: 0 }));
+  let off = 0;
+  for (let i = 0; i < t.segs.length; i += 2) {
+    const n = t.segs[i], code = t.segs[i + 1];
+    const a = Math.floor(off * C / total), b = Math.min(C - 1, Math.floor((off + n - 1) * C / total));
+    for (let j = a; j <= b; j++) {
+      if (code < 0) cells[j].model = Math.min(cells[j].model, code);
+      else if (cells[j].kill < 0) cells[j].kill = code;
+    }
+    off += n;
+  }
+  return cells;
+}
+const HEAD = {
+  proved: ['✓', '證明通過！邏輯 100% 嚴密'],
+  refuted: ['✗', '證明失敗！Lean 拒絕通過！'],
+  vacuous: ['!', '題目本身自相矛盾'],
+  error: ['✗', '這段 Lean 我讀不懂'],
+  cannot: ['?', 'AI 表示這題轉不出來'],
+};
+function pickMain(ts) {
+  const order = { error: 0, refuted: 1, vacuous: 2, proved: 3 };
+  return ts.slice().sort((a, b) => order[a.verdict] - order[b.verdict] || ((b.stats && b.stats.total) || 0) - ((a.stats && a.stats.total) || 0))[0];
+}
+function leanLinks(res) {
+  if (!res.exportLean) return '';
+  return `<div class="actions">
+    <button class="btn small" type="button" id="copy-lean">複製完整 Lean 4 檔</button>
+    <span class="toast" id="toast-lean" role="status"></span></div>`;
+}
+
+function verdictHTML(res, t) {
+  const v = t.verdict, st = t.stats, H = [];
+  const sub = v === 'proved' ? (t.mode === 'exists' ? '找到了滿足所有條件的情況。' : '所有可能的情況都檢查過了，找不到任何反例。')
+    : v === 'refuted' ? (t.mode === 'exists' ? '沒有任何情況能滿足所有條件。' : '找到漏洞了：有情況符合題目所有條件，結論卻不成立。')
+    : v === 'vacuous' ? '沒有任何情況能同時滿足所有條件。' : '';
+  H.push(`<div class="head"><div class="lamp" aria-hidden="true">${HEAD[v][0]}</div><div><h3>${HEAD[v][1]}</h3><p class="sub">${sub}</p></div></div>`);
+
+  if (res.meta.conclusion) {
+    H.push(`<div class="answer${v === 'proved' ? '' : ' struck'}"><div class="k">${v === 'proved' ? '答案' : 'AI 主張的答案'}</div><div class="t">${esc(res.meta.conclusion)}</div></div>`);
+  }
+
+  if (v === 'refuted' && t.mode !== 'exists') {
+    const c = t.counter[0];
+    H.push(`<div class="block hole"><div class="k">漏洞在這裡</div>
+      <p>下面這個情況<b>滿足題目的每一個條件</b>，但結論裡的 <code>${esc(t.goals[c.failed].text)}</code> 在這裡是假的：</p>${modelTable(t, c)}</div>`);
+    if (st.models === 1) H.push(`<div class="block"><div class="k">正確答案</div><p>符合所有條件的情況<b>只有上面這一種</b>，所以它就是這題真正的答案。</p></div>`);
+    else H.push(`<div class="block"><div class="k">所有符合條件的情況（共 ${num(st.models)} 種，其中 ${num(st.bad)} 種讓結論不成立）</div>${modelsCompact(t, t.models, 8)}
+      <p class="note">符合條件的情況不只一種，代表題目條件不足以決定唯一答案，或 AI 漏寫了條件。</p></div>`);
+  }
+  if (v === 'refuted' && t.mode === 'exists') {
+    const worst = t.hyps.map((h, i) => ({ h, i })).sort((a, b) => b.h.killed - a.h.killed)[0];
+    H.push(`<div class="block hole"><div class="k">為什麼不行</div><p>${num(st.total)} 種情況全部被條件排除。排除最多的是：<code>${esc(worst.h.text)}</code>${worst.h.comment ? '（' + esc(worst.h.comment) + '）' : ''}</p></div>`);
+  }
+  if (v === 'vacuous') {
+    H.push(`<div class="block hole" style="border-color:rgba(255,180,84,.5);background:rgba(255,180,84,.08)"><div class="k">這代表什麼</div>
+      <p>題目的條件互相打架，世界上不存在這種情況。嚴格來說 Lean 會讓這個定理通過（因為找不到反例），但那只是「前提不可能成立，所以說什麼都對」，<b>不代表答案正確</b>。這題是悖論或無解。</p></div>`);
+  }
+  if (v === 'proved') {
+    if (t.mode === 'exists') H.push(`<div class="block"><div class="k">滿足條件的情況（共 ${num(st.models)} 組）</div>${st.models === 1 ? modelTable(t, t.models[0]) : modelsCompact(t, t.models, 8)}</div>`);
+    else if (st.models === 1) H.push(`<div class="block"><div class="k">唯一存活的世界</div>${modelTable(t, t.models[0])}</div>`);
+    else H.push(`<div class="block"><div class="k">存活的世界</div><p>符合題目條件的情況共有 <b>${num(st.models)}</b> 種，結論在每一種都成立。</p></div>`);
+  }
+
+  const cells = worldCells(t);
+  H.push(`<div class="block"><div class="k">所有可能世界${cells && cells.length < st.total ? '（每格代表多個）' : ''}</div>
+    ${cells ? `<div class="worlds" id="worlds">${cells.map(() => '<i></i>').join('')}</div>` : ''}
+    <div class="stats"><span><b id="s-total">${num(st.total)}</b> 種可能</span><span><b id="s-dead">0</b> 被條件排除</span><span><b id="s-live">${num(st.total)}</b> 存活</span></div></div>`);
+
+  if (t.hyps.length) {
+    H.push(`<div class="block"><div class="k">${t.mode === 'exists' ? '條件' : '題目條件（前提）'}</div><div class="hyps">${t.hyps.map((h, i) =>
+      `<div class="hyp" data-h="${i}"><div class="c">${esc(h.comment || h.text)}</div><div class="f">${esc(h.label)} : ${esc(h.text)}</div><div class="kills" data-k="${i}"></div></div>`).join('')}</div></div>`);
+  }
+  if (res.theorems.length > 1) {
+    const zh = { proved: '通過', refuted: '失敗', vacuous: '矛盾', error: '錯誤' };
+    H.push(`<div class="block"><div class="k">全部定理</div><div class="others">${res.theorems.map(x =>
+      `<div><span class="badge ${x.verdict}">${zh[x.verdict]}</span>${esc(x.name)}${x.verdict === 'error' ? '：' + esc(x.error.msg) : ''}</div>`).join('')}</div></div>`);
+  }
+  if (res.notes.length) H.push(`<div class="block"><p class="note">${res.notes.map(esc).join('<br>')}</p></div>`);
+  H.push(leanLinks(res));
+  return { html: H.join(''), cells };
+}
+
+async function animateWorlds(t, cells, id) {
+  const st = t.stats, els = cells ? Array.from($('worlds').children) : [];
+  const per = cells ? st.total / cells.length : 0;
+  let dead = 0;
+  const setStats = () => { $('s-dead').textContent = num(dead); $('s-live').textContent = num(st.total - dead); };
+  for (let i = 0; i < t.hyps.length; i++) {
+    if (id !== runId) return;
+    const row = document.querySelector(`.hyp[data-h="${i}"]`);
+    if (!t.hyps[i].killed) { row.querySelector('.kills').textContent = '排除 0'; continue; }
+    row.classList.add('on');
+    els.forEach((el, j) => { if (cells[j].model === 0 && cells[j].kill === i) el.classList.add('dead'); });
+    const from = dead, to = dead + t.hyps[i].killed;
+    for (let k = 1; k <= 6 && !instant; k++) { dead = from + (to - from) * k / 6; setStats(); await sleep(45); }
+    dead = to; setStats();
+    row.querySelector('.kills').textContent = '排除 ' + num(t.hyps[i].killed);
+    await sleep(Math.max(120, Math.min(420, 2400 / t.hyps.length)));
+    row.classList.remove('on');
+  }
+  els.forEach((el, j) => { if (cells[j].model === -2) el.classList.add('cex'); else if (cells[j].model === -1) el.classList.add('live'); else el.classList.add('dead'); });
+  setStats();
+}
+
+function simplePanel(v, bodyHTML, sub) {
+  return `<div class="head"><div class="lamp" aria-hidden="true">${HEAD[v][0]}</div><div><h3>${HEAD[v][1]}</h3><p class="sub">${sub || ''}</p></div></div>${bodyHTML}`;
+}
+function bindPanelButtons(res) {
+  const b = $('copy-lean');
+  if (b) b.onclick = () => copyText(res.exportLean, $('toast-lean'), '已複製');
+  const e = $('copy-err');
+  if (e) e.onclick = () => copyText(e.dataset.text, $('toast-err'), '已複製，貼回給 AI 請它修正');
+}
+
+async function run(animated) {
+  const id = ++runId;
+  instant = !animated || reduced;
+  const raw = $('lean').value;
+  const right = $('win-right'), vbox = $('verdict');
+  let res;
+  try { res = window.LeanEngine.check(raw); }
+  catch (e) { res = { ok: false, src: raw, meta: {}, theorems: [], error: { msg: '網頁內部錯誤：' + e.message }, notes: [] }; }
+  $('log').innerHTML = ''; $('log-count').textContent = ''; $('thm-name').textContent = '';
+  right.classList.remove('shake');
+  $('skip').hidden = instant;
+
+  if (res.cannot) {
+    renderCode(raw.trim() + '\n');
+    right.dataset.v = 'cannot';
+    vbox.innerHTML = simplePanel('cannot',
+      `<div class="answer"><div class="k">原因</div><div class="t">${esc(res.meta.cannot)}</div></div>` +
+      (res.meta.suggest ? `<div class="block"><div class="k">建議改法</div><p>${esc(res.meta.suggest)}</p></div>` : '') +
+      `<div class="block"><p class="note">照建議把題目改一下，再回到步驟 1 重新複製提示詞。</p></div>`, '這不是壞事：有些題目本來就不能逐一檢查。');
+    $('skip').hidden = true; return;
+  }
+
+  right.dataset.v = 'busy';
+  vbox.innerHTML = `<div class="head"><div class="lamp" aria-hidden="true"></div><div><h3>檢查中…</h3><p class="sub">正在把每一種可能代進去。</p></div></div>`;
+  if (!instant) { await typeCode(res.src, id); if (id !== runId) return; }
+
+  if (!res.ok) {
+    renderCode(res.src, { errLine: res.error.line });
+    const lineEl = document.querySelector('.code .ln.err'); if (lineEl) lineEl.scrollIntoView({ block: 'nearest' });
+    await playLog([{ cls: 'bad', html: '✗ ' + esc(res.error.msg) }], id);
+    right.dataset.v = 'error';
+    const fix = `你剛剛輸出的 Lean 貼到驗證網頁時出現錯誤，請只修正這個問題，仍然遵守原本的格式與語法限制，重新輸出完整的 lean 程式區塊。\n錯誤訊息：${res.error.msg}`;
+    vbox.innerHTML = simplePanel('error',
+      `<div class="errbox">${esc(res.error.msg)}</div>
+       <div class="block"><p class="note">通常是 AI 用了這個網頁不支援的語法。按下面的按鈕把錯誤訊息複製起來，貼回同一個 AI 對話，請它修正後再貼一次。</p></div>
+       <div class="actions"><button class="btn small" type="button" id="copy-err" data-text="${esc(fix)}">複製錯誤訊息給 AI</button><span class="toast" id="toast-err" role="status"></span></div>`,
+      res.error.line ? `問題出在第 ${res.error.line} 行。` : '');
+    bindPanelButtons(res);
+    if (!instant) right.classList.add('shake');
+    $('skip').hidden = true; return;
+  }
+
+  renderCode(res.src, { errLine: (res.theorems.find(x => x.verdict === 'error') || { error: {} }).error.line });
+  const main = pickMain(res.theorems);
+  $('thm-name').textContent = main.name;
+  const allLines = [];
+  for (const t of res.theorems) { allLines.push(...buildLog(t)); allLines.push({ cls: 'dim', html: '' }); }
+  allLines.pop();
+  $('log-count').textContent = res.theorems.length > 1 ? `${res.theorems.length} 個定理` : '';
+
+  if (main.verdict === 'error') {
+    await playLog(allLines, id); if (id !== runId) return;
+    right.dataset.v = 'error';
+    const fix = `你剛剛輸出的 Lean 貼到驗證網頁時出現錯誤，請只修正這個問題，仍然遵守原本的格式與語法限制，重新輸出完整的 lean 程式區塊。\n錯誤訊息：${main.error.msg}`;
+    vbox.innerHTML = simplePanel('error',
+      `<div class="errbox">${esc(main.error.msg)}</div>
+       <div class="block"><p class="note">按下面的按鈕把錯誤訊息複製起來，貼回同一個 AI 對話，請它修正後再貼一次。</p></div>
+       <div class="actions"><button class="btn small" type="button" id="copy-err" data-text="${esc(fix)}">複製錯誤訊息給 AI</button><span class="toast" id="toast-err" role="status"></span></div>`,
+      `定理 ${esc(main.name)} 沒辦法檢查。`);
+    bindPanelButtons(res);
+    if (!instant) right.classList.add('shake');
+    $('skip').hidden = true; return;
+  }
+
+  // 先放出面板骨架（燈還沒亮），條件逐條淘汰世界，最後才宣判
+  const { html, cells } = verdictHTML(res, main);
+  vbox.innerHTML = html;
+  const reveal = Array.from(vbox.children).filter(el => !el.querySelector('#worlds') && !el.querySelector('.hyps'));
+  const headEl = vbox.querySelector('.head');
+  const headHTML = headEl.innerHTML;
+  if (!instant) {
+    reveal.forEach(el => { if (el !== headEl) el.hidden = true; });
+    headEl.innerHTML = `<div class="lamp" aria-hidden="true"></div><div><h3>檢查中…</h3><p class="sub">題目條件正在一條一條淘汰不可能的世界。</p></div>`;
+  }
+  await Promise.all([playLog(allLines, id), animateWorlds(main, cells, id)]);
+  if (id !== runId) return;
+  await sleep(350);
+  headEl.innerHTML = headHTML;
+  reveal.forEach(el => { el.hidden = false; });
+  right.dataset.v = main.verdict;
+  if (!instant && main.verdict === 'refuted') right.classList.add('shake');
+  bindPanelButtons(res);
+  $('skip').hidden = true;
+  if (animated && window.innerWidth <= 900) right.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+}
+
+/* ── 初始化 ── */
+$('prompt-view').textContent = PROMPT + '（你的題目會接在這裡）';
+EX.filter(e => e.puzzle && e.id !== 'wrong').forEach(e => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'chip'; b.textContent = e.label;
+  b.onclick = () => { $('puzzle').value = e.puzzle; $('puzzle').focus(); };
+  $('puzzle-chips').appendChild(b);
+});
+$('copy-prompt').onclick = () => {
+  const q = $('puzzle').value.trim();
+  if (!q) { $('toast-prompt').style.color = 'var(--amber)'; $('toast-prompt').textContent = '先在上面寫下你的題目'; $('puzzle').focus(); return; }
+  $('toast-prompt').style.color = '';
+  copyText(PROMPT + q + '\n', $('toast-prompt'), '已複製！貼到任何一個 AI 對話裡');
+};
+$('run').onclick = () => { run(true); document.querySelector('.stage').scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' }); };
+$('skip').onclick = () => { instant = true; };
+$('lean').value = EX[0].lean;
+run(false);
+})();
+</script>
+</body>
+</html>
